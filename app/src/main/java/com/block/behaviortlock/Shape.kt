@@ -82,15 +82,22 @@ data class Shape(
     val meanGyro: Float = Float.NaN
 ) {
     /**
-     * True when this recording actually carries usable attitude information.
+     * True when this recording carries a usable reference for how the phone is
+     * held.
      *
-     * A phone lying flat on a table reports pitch and roll of ~0, which carries
-     * no information about how a person holds it. Comparing 0 against 0 would
-     * "pass" for anyone, so attitude is skipped rather than scored in that case.
+     * A phone lying flat on a desk reports pitch and roll near zero. That is
+     * not a weak measurement, it is a *meaningless* one: it says nothing about
+     * how a person holds a phone, and a desk recording cannot be reproduced by
+     * anyone holding the device. Treating "flat" as measurable produced a
+     * deadlock — enrolled flat (tilt jitter 0.5°), then any attempt made with
+     * the phone in a hand (jitter 3–13°) failed on steadiness every time.
+     *
+     * So a routine is only grip-checked if it was enrolled with the phone
+     * genuinely tilted, i.e. actually being held.
      */
     val hasGrip: Boolean
         get() = !meanPitch.isNaN() && !meanRoll.isNaN() &&
-            (abs(meanPitch) > 4f || abs(meanRoll) > 4f)
+            (abs(meanPitch) > 10f || abs(meanRoll) > 10f)
 
     /** True when this phone actually reports real pressure values.
      *

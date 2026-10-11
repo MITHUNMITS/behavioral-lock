@@ -358,12 +358,34 @@ class SessionScorerTest {
     }
 
     @Test
-    fun `the same angle but a much shakier hold must fail`() {
+    fun `the same angle but a much shakier hold must still unlock`() {
+        // DESIGN CHANGE, driven by 25 real unlock attempts on a POCO M2 Pro.
+        //
+        // Hand tremor measured 0.9-13.7 degrees while the phone was held, and
+        // 0.5-3.3 while it was held still for an enrolment. Those ranges
+        // overlap almost completely, so steadiness cannot tell the owner from
+        // a stranger - it only rejected the owner at random. It is still
+        // measured, reported and scored; it just may not block.
         val enrolled = tapsHeldAt(20f, -8f, 1.0f, longArrayOf(0, 250, 250, 250))
         val attempt = tapsHeldAt(20f, -8f, 14f, longArrayOf(0, 250, 250, 250))
         val result = SessionScorer.compare(enrolled, attempt)
-        assertTrue("moving the phone around is not the same behaviour", !result.passed)
-        assertTrue(!result.gripOk)
+        assertTrue("a shakier hold must not block the owner", result.gripOk)
+        assertTrue("got '${result.headline}'", result.passed)
+    }
+
+    @Test
+    fun `a routine enrolled flat on a desk never blocks on grip`() {
+        // REAL DEVICE REGRESSION. The phone was enrolled lying flat on a desk
+        // (tilt jitter 0.5 degrees, the physical minimum) and then every unlock
+        // attempt made with the phone in a hand failed, because hand tremor is
+        // always higher than that of a phone resting on a table. A desk
+        // recording is not a description of how anyone holds a phone, so it
+        // must not be treated as one.
+        val enrolled = tapsHeldAt(0.5f, 4.7f, 0.5f, longArrayOf(0, 250, 250, 250))
+        val attempt = tapsHeldAt(-4.6f, 5.7f, 3.1f, longArrayOf(0, 250, 250, 250))
+        val result = SessionScorer.compare(enrolled, attempt)
+        assertTrue("a desk enrolment is not a hold reference", !result.gripMeasured)
+        assertTrue("got '${result.headline}'", result.passed)
     }
 
     @Test
