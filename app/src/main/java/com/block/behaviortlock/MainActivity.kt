@@ -516,13 +516,18 @@ private fun RecorderRoute(
                         }
                         is AppViewModel.Result.Failed -> takeMessage = r.why
                     }
-                    addingTake = false
                     recorder.clear()
                     recorderEpoch++
-                    // Go BACK to the review screen. Staying here stranded the
-                    // user on the recorder with no way to reach "Record take 3",
-                    // because the review screen is where that button lives.
-                    stage = 1
+                    // Straight on to the next take. Three recordings are
+                    // mandatory, so there is no decision to make between them
+                    // and no chance to stop at one and think it is done.
+                    if (vm.takeCount < AppViewModel.MAX_TAKES) {
+                        addingTake = true
+                        stage = 0
+                    } else {
+                        addingTake = false
+                        stage = 1   // 3 of 3: the summary
+                    }
                 } else {
                     vm.enroll(trace)
                     stage = 1

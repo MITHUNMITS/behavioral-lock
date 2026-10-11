@@ -88,6 +88,36 @@ class SegmenterQATest {
     }
 
     @Test
+    fun `a wrist-driven shake is detected even with weak linear acceleration`() {
+        // REAL DEVICE BUG. "Shake not working."
+        //
+    // Strength was judged on linear acceleration ALONE, while a run of the
+    // window was extended by EITHER sensor. So a shake driven by the wrist
+    // rotating the phone -- high rotation rate, modest acceleration -- could
+    // extend the window but could never satisfy the strength test. No amount
+    // of vigour could ever make such a shake detectable.
+    //
+    // The oscillation here travels across all three axes, which is what a real
+    // shake does and what a single fixed axis used to miss.
+    val m = (0 until 40).map { i ->
+        val v = if (i % 5 < 3) 3.5f else -3.5f   // below SHAKE_ENERGY on purpose
+        MotionPoint(
+            t = i * 20_000_000L,
+            accelX = v, accelY = v * 0.8f, accelZ = v * 0.5f,
+            gyroX = if (i % 5 < 3) 2.5f else -2.5f,
+            gyroY = 0.4f, gyroZ = -0.3f,
+            pitch = 0f, roll = 0f
+        )
+    }
+    val session = AutoSegmenter.segment(Trace(SegmentKind.DRAW, emptyList(), m))
+    assertTrue(
+        "a wrist-driven shake must be detected, got " +
+            session.events.joinToString { it.kind.name },
+        session.events.any { it.kind == SegmentKind.SHAKE }
+    )
+}
+
+@Test
     fun `a real shake is still detected after the phone is picked up`() {
         // The fix must not break the feature: an actual shake still counts.
         val lift = lifting(0L, count = 12)

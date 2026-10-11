@@ -58,10 +58,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val takeCount: Int get() = totalTakes()
 
     companion object {
-        /** More than this and the acceptance envelope grows faster than it helps. */
-        const val MAX_TAKES = 5
+        /**
+         * Exactly three recordings, no more and no fewer.
+         *
+         * Three is the first point at which the app can see the user's actual
+         * range rather than one arbitrary sample, and where a single odd take
+         * can be ignored. More than three widens what the lock accepts without
+         * adding meaningful reliability — and widening the acceptance envelope
+         * is a real security cost, so it should not be offered casually.
+         */
+        const val MAX_TAKES = 3
 
-        /** What we recommend, and what the enrolment flow aims for. */
+        /** The enrolment flow always collects exactly this many. */
         const val RECOMMENDED_TAKES = 3
     }
 
