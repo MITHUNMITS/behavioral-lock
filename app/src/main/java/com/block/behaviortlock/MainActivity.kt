@@ -459,6 +459,16 @@ private fun RecorderRoute(
     var stage by remember { mutableStateOf(0) }   // 0 = record, 1 = review, 2 = test
     var testResult by remember { mutableStateOf<SessionResult?>(null) }
 
+    /**
+     * True while recording an ADDITIONAL take rather than the first one.
+     *
+     * The first take replaces the routine entirely; later ones are added to it,
+     * so a user who just wants to change their routine must not have three
+     * stale takes carried along with it.
+     */
+    var addingTake by remember { mutableStateOf(false) }
+    var takeMessage by remember { mutableStateOf<String?>(null) }
+
     // Every return to the recording screen wipes the previous attempt, so an
     // old drawing can never linger on the canvas.
     fun backToRecording() {
@@ -472,12 +482,35 @@ private fun RecorderRoute(
             recorder = recorder,
             mode = RecorderMode.ENROLL,
             enrolled = emptyList(),
+            promptTitle = if (addingTake)
+                "Take ${vm.totalTakes() + 1} of ${AppViewModel.MAX_TAKES}"
+            else "Enroll now",
+            promptBody = if (addingTake)
+                "Perform the same routine again, in the same order.\n" +
+                    "Doing it a few times teaches the lock your normal variation."
+            else "Perform your whole routine in one go —\ntap, draw, swipe, shake, whatever you like.",
             onFinished = { trace ->
-                if (trace.touches.isNotEmpty()) {
+                if (trace.touches.isEmpty()) {
+                    recorder.clear()
+                    return@RecorderScreen
+                }
+                if (addingTake) {
+                    when (val r = vm.addTake(trace)) {
+                        is AppViewModel.Result.Ok -> {
+                            takeMessage = "Take ${r.count} of ${AppViewModel.MAX_TAKES} saved."
+                            addingTake = false
+                            recorder.clear()
+                        }
+                        is AppViewModel.Result.Failed -> {
+                            // Keep recording so the user can try again without
+                            // having to remember where they were.
+                            takeMessage = r.why
+                            recorder.clear()
+                        }
+                    }
+                } else {
                     vm.enroll(trace)
                     stage = 1
-                } else {
-                    recorder.clear()
                 }
             },
             onCancel = onExit
@@ -489,6 +522,18 @@ private fun RecorderRoute(
             holdPitch = gripOf(vm)?.first,
             holdRoll = gripOf(vm)?.second,
             holdWobble = gripOf(vm)?.third,
+            takeCount = vm.takeCount,
+            maxTakes = AppViewModel.MAX_TAKES,
+            recommendedTakes = AppViewModel.RECOMMENDED_TAKES,
+            onAddTake = {
+                if (vm.takeCount < AppViewModel.MAX_TAKES) {
+                    recorder.clear()
+                    addingTake = true
+                    takeMessage = null
+                    stage = 0
+                }
+            },
+            onRemoveTake = { vm.removeTake(it) },
             onRecordAgain = { backToRecording() },
             onTest = {
                 // The enrolment recording is no longer needed; free it so the

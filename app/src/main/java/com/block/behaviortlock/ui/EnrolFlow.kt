@@ -66,6 +66,12 @@ fun EnrolReviewScreen(
     holdPitch: Float? = null,
     holdRoll: Float? = null,
     holdWobble: Float? = null,
+    /** How many recordings of the routine the user has made. */
+    takeCount: Int = 1,
+    maxTakes: Int = 5,
+    recommendedTakes: Int = 3,
+    onAddTake: () -> Unit = {},
+    onRemoveTake: (Int) -> Unit = {},
     onRecordAgain: () -> Unit,
     onTest: () -> Unit,
     onDone: () -> Unit
@@ -97,6 +103,69 @@ fun EnrolReviewScreen(
                 }
             }
         }
+
+        SectionCard(
+            title = "Recordings",
+            subtitle = "$takeCount of $maxTakes"
+        ) {
+            Column {
+                Text(
+                    if (takeCount < recommendedTakes)
+                        "One recording is a single sample of how you happen to " +
+                            "behave today. Record $recommendedTakes and the lock " +
+                            "learns your normal variation, so it stops rejecting " +
+                            "you on a slightly different day."
+                    else
+                        "Good — this routine now covers your normal variation. " +
+                            "More takes widen what the lock accepts, so there " +
+                            "is a limit of $maxTakes.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    repeat(maxTakes) { i ->
+                        val filled = i < takeCount
+                        Box(
+                            Modifier
+                                .size(if (filled) 14.dp else 10.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (filled) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surfaceVariant
+                                )
+                        )
+                    }
+                }
+                if (takeCount < maxTakes) {
+                    Spacer(Modifier.height(16.dp))
+                    Button(
+                        onClick = onAddTake,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Record take ${takeCount + 1}")
+                    }
+                }
+                if (takeCount > 1) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Start from scratch instead:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        repeat(takeCount) { i ->
+                            OutlinedButton(onClick = { onRemoveTake(i) }) {
+                                Text("Delete ${i + 1}")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
 
         if (holdPitch == null || holdRoll == null || holdWobble == null) {
             Spacer(Modifier.height(14.dp))

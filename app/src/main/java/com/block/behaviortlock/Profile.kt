@@ -27,6 +27,20 @@ object ProfileStore {
         // Stored as the raw Trace; the app re-derives the detected events from
         // it every time it loads, so there is only ever ONE source of truth.
         val enrolledTrace: Trace? = null,
+        /**
+         * Additional recordings of the SAME routine.
+         *
+         * [enrolledTrace] is always kept as the first take, and is still written
+         * to disk, so a profile saved by any version of this app can be read by
+         * any other. This list is purely additive: with one entry the behaviour
+         * is identical to having no list at all.
+         *
+         * Why more than one: a single recording is one arbitrary sample of how
+         * the user happens to behave on one day. Matching against several means
+         * accepting anything close to any of their real samples, instead of
+         * demanding they reproduce one take exactly.
+         */
+        val extraTraces: List<Trace> = emptyList(),
         // A short human description like "Tap, Tap, Draw" for the home screen.
         val enrolledSummary: String = "",
         val lockEnabled: Boolean = false,
@@ -42,6 +56,19 @@ object ProfileStore {
         /** The detected events for the enrolled routine, derived on demand. */
         fun enrolledSession(): DetectedSession =
             enrolledTrace?.let { AutoSegmenter.segment(it, stringMode) } ?: DetectedSession()
+
+        /**
+         * Every reference recording, the first take first.
+         *
+         * An enrolment with a single take returns a list of one, so callers
+         * never have to special-case the old format.
+         */
+        fun allTraces(): List<Trace> =
+            listOfNotNull(enrolledTrace) + extraTraces
+
+        /** One session per reference recording. */
+        fun allSessions(): List<DetectedSession> =
+            allTraces().map { AutoSegmenter.segment(it, stringMode) }
     }
 
     // -- public API ----------------------------------------------------------
@@ -75,6 +102,13 @@ object ProfileStore {
         if (p.enrolledTrace != null) {
             json.put("enrolledTrace", serializeTrace(p.enrolledTrace))
         }
+        // Additional takes are additive; the first take above is always written
+        // on its own key, so old files keep working unchanged.
+        if (p.extraTraces.isNotEmpty()) {
+            val arr = JSONArray()
+            for (t in p.extraTraces) arr.put(serializeTrace(t))
+            json.put("extraTraces", arr)
+        }
         json.put("enrolledSummary", p.enrolledSummary)
         json.put("lockEnabled", p.lockEnabled)
         json.put("strongMode", p.strongMode)
@@ -89,6 +123,11 @@ object ProfileStore {
     private fun parseProfile(json: JSONObject): Profile = Profile(
         enrolledTrace = json.optJSONObject("enrolledTrace")
             ?.let { parseTrace(it, SegmentKind.DRAW) },
+        extraTraces = json.optJSONArray("extraTraces")?.let { arr ->
+            (0 until arr.length()).mapNotNull { i ->
+                arr.optJSONObject(i)?.let { parseTrace(it, SegmentKind.DRAW) }
+            }
+        } ?: emptyList(),
         enrolledSummary = json.optString("enrolledSummary", ""),
         lockEnabled = json.optBoolean("lockEnabled", false),
         strongMode = json.optBoolean("strongMode", false),

@@ -93,7 +93,10 @@ fun RecorderScreen(
     mode: RecorderMode,
     enrolled: List<DetectedEvent>,
     onFinished: (Trace) -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    // Overridable so an extra take can say which take it is and why.
+    promptTitle: String? = null,
+    promptBody: String? = null
 ) {
     var running by remember { mutableStateOf(false) }
     var secondsLeft by remember { mutableIntStateOf(MAX_RECORD_SECONDS) }
@@ -331,7 +334,7 @@ fun RecorderScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         StartButton(
                             pulseScale,
-                            if (mode == RecorderMode.ENROLL) "Enroll now" else "Unlock"
+                            promptTitle ?: if (mode == RecorderMode.ENROLL) "Enroll now" else "Unlock"
                         ) {
                             // Must go through startRecording(): it is the only
                             // place that sets recordDeadline. Starting the
@@ -342,7 +345,7 @@ fun RecorderScreen(
                         }
                         Spacer(Modifier.height(16.dp))
                         Text(
-                            if (mode == RecorderMode.ENROLL)
+                            promptBody ?: if (mode == RecorderMode.ENROLL)
                                 "Perform your whole routine in one go —\ntap, draw, swipe, shake, whatever you like."
                             else
                                 "Perform the same routine, in the same order,\nwith the same pauses.",
