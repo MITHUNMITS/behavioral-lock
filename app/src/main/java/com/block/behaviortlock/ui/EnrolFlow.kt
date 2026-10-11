@@ -2,6 +2,9 @@ package com.block.behaviortlock.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -51,6 +54,7 @@ import com.block.behaviortlock.Trace
 private val MatchGreen = androidx.compose.ui.graphics.Color(0xFF22C55E)
 
 /** Step 1: show what the app detected, and offer Record again / Test. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EnrolReviewScreen(
     summary: String,
@@ -147,20 +151,38 @@ fun EnrolReviewScreen(
                     }
                 }
                 if (takeCount > 1) {
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(14.dp))
                     Text(
-                        "Start from scratch instead:",
+                        "Delete a bad take:",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Wraps: a plain Row overflows once there are several
+                    // takes, which pushed the rest of the screen out of reach.
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         repeat(takeCount) { i ->
-                            OutlinedButton(onClick = { onRemoveTake(i) }) {
-                                Text("Delete ${i + 1}")
+                            OutlinedButton(
+                                onClick = { onRemoveTake(i) },
+                                contentPadding = PaddingValues(
+                                    horizontal = 14.dp,
+                                    vertical = 6.dp
+                                )
+                            ) {
+                                Text("Take ${i + 1}")
                             }
                         }
                     }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "To start over completely, use \"Record again\" at the " +
+                            "top instead — that replaces all of them.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

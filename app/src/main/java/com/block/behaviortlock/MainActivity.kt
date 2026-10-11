@@ -45,6 +45,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -469,6 +470,17 @@ private fun RecorderRoute(
     var addingTake by remember { mutableStateOf(false) }
     var takeMessage by remember { mutableStateOf<String?>(null) }
 
+    /**
+     * Bumped after every saved take, which recreates the recorder screen.
+     *
+     * The recorder keeps its own state (running / stopped / countdown). After
+     * the FIRST take the stage changes to the review screen, so the recorder is
+     * disposed and comes back fresh. After takes two and three the stage stays
+     * on the recorder, so it was never disposed and was left showing
+     * "Recording stopped" from the take that had just been saved.
+     */
+    var recorderEpoch by remember { mutableIntStateOf(0) }
+
     // Every return to the recording screen wipes the previous attempt, so an
     // old drawing can never linger on the canvas.
     fun backToRecording() {
@@ -478,7 +490,9 @@ private fun RecorderRoute(
     }
 
     when (stage) {
-        0 -> RecorderScreen(
+        // key() recreates the recorder screen whenever a take is saved, so it
+        // never carries "Recording stopped" over from the previous attempt.
+        0 -> key(recorderEpoch) { RecorderScreen(
             recorder = recorder,
             mode = RecorderMode.ENROLL,
             enrolled = emptyList(),
@@ -492,29 +506,26 @@ private fun RecorderRoute(
             onFinished = { trace ->
                 if (trace.touches.isEmpty()) {
                     recorder.clear()
+                    recorderEpoch++
                     return@RecorderScreen
                 }
                 if (addingTake) {
                     when (val r = vm.addTake(trace)) {
                         is AppViewModel.Result.Ok -> {
                             takeMessage = "Take ${r.count} of ${AppViewModel.MAX_TAKES} saved."
-                            addingTake = false
-                            recorder.clear()
                         }
-                        is AppViewModel.Result.Failed -> {
-                            // Keep recording so the user can try again without
-                            // having to remember where they were.
-                            takeMessage = r.why
-                            recorder.clear()
-                        }
+                        is AppViewModel.Result.Failed -> takeMessage = r.why
                     }
+                    addingTake = false
+                    recorder.clear()
+                    recorderEpoch++
                 } else {
                     vm.enroll(trace)
                     stage = 1
                 }
             },
             onCancel = onExit
-        )
+        ) }
 
         1 -> EnrolReviewScreen(
             summary = vm.enrolledSummary,
