@@ -29,16 +29,77 @@ class SegmenterQATest {
         }
     }
 
-    /** A motion sample that is either still or shaking hard. */
+    /**
+     * Motion samples that are either still, shaking hard, or being LIFTED.
+     *
+     * A real shake oscillates. The previous version of this fixture used one
+     * constant value, which is not a shake at all -- it is exactly what happens
+     * when someone picks a phone up off a desk, and it was letting a
+     * non-shake pass as a shake.
+     */
     private fun motion(startNs: Long, count: Int, shaking: Boolean, spacingNs: Long = 20_000_000L):
         List<MotionPoint> = (0 until count).map { i ->
-        val v = if (shaking) 12f else 0.2f
+        // Square-ish oscillation: +12, +12, +12, -12, -12, -12, ... A deliberate
+        // shake changes direction several times a second.
+        val v = when {
+            !shaking -> 0.2f
+            i % 6 < 3 -> 12f
+            else -> -12f
+        }
         MotionPoint(
             t = startNs + i * spacingNs,
-            accelX = v, accelY = if (shaking) -v else v, accelZ = 0f,
+            accelX = v, accelY = -v, accelZ = 0f,
             gyroX = if (shaking) 3f else 0.01f,
             gyroY = 0f, gyroZ = 0f,
             pitch = 0f, roll = 0f
+        )
+    }
+
+    /**
+     * A sustained, strong, ONE-DIRECTION movement: someone picking the phone up
+     * off a desk and holding it. Same energy and duration as a shake, but it
+     * never reverses direction.
+     */
+    private fun lifting(startNs: Long, count: Int, spacingNs: Long = 20_000_000L):
+        List<MotionPoint> = (0 until count).map { i ->
+        MotionPoint(
+            t = startNs + i * spacingNs,
+            accelX = 11f, accelY = 3f, accelZ = 0f,
+            gyroX = 0.4f, gyroY = 0.1f, gyroZ = 0f,
+            pitch = 0f, roll = 0f
+        )
+    }
+
+    @Test
+    fun `picking the phone up off a desk is NOT a shake`() {
+        // REAL DEVICE REGRESSION. A routine enrolled with the phone flat on a
+        // desk failed every time the user lifted the phone to unlock with it,
+        // and worked every time it was left lying flat. The lift was long and
+        // strong enough to pass the old energy and duration checks, so it was
+        // segmented as a SHAKE and the sequence became "Shake, Tap, Tap...".
+        // A lift goes one way. A shake goes back and forth.
+        val m = lifting(0L, count = 40)
+        val session = AutoSegmenter.segment(Trace(SegmentKind.DRAW, emptyList(), m))
+        assertTrue(
+            "lifting the phone must not be segmented as a shake, got " +
+                session.events.joinToString { it.kind.name },
+            session.events.none { it.kind == SegmentKind.SHAKE }
+        )
+    }
+
+    @Test
+    fun `a real shake is still detected after the phone is picked up`() {
+        // The fix must not break the feature: an actual shake still counts.
+        val lift = lifting(0L, count = 12)
+        val shake = motion(12 * 20_000_000L, count = 40, shaking = true)
+        val session = AutoSegmenter.segment(
+            Trace(SegmentKind.DRAW, emptyList(), lift + shake)
+        )
+        assertEquals(
+            "one shake should still be detected, got " +
+                session.events.joinToString { it.kind.name },
+            1,
+            session.events.count { it.kind == SegmentKind.SHAKE }
         )
     }
 

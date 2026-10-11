@@ -116,11 +116,19 @@ object AutoSegmenter {
     // coming back can look "straight" and get called a swipe.
     private const val SWIPE_MIN_SPAN_PX = 180f
     // Linear acceleration above this (m/s^2) counts as vigorous movement.
-    private const val SHAKE_ENERGY = 5.0f
+    // Energy above which a motion sample counts as vigorous. Raised from 5.0 after
+    // a real device showed that picking the phone up off a desk clears 5.0 easily.
+    private const val SHAKE_ENERGY = 8.0f
     // Rotation rate above this (rad/s) also counts as vigorous movement.
     private const val SHAKE_GYRO = 1.2f
     // A shake must last at least this long to be deliberate rather than a bump.
     private const val SHAKE_MIN_MS = 200f
+    // A shake must actually go back and forth at least three times. Lifting a
+    // phone is one movement in one direction and never reaches this.
+    private const val SHAKE_MIN_REVERSALS = 3
+    // Acceleration below this (m/s^2) is treated as zero when counting
+    // reversals, so sensor jitter is not mistaken for a direction change.
+    private const val SHAKE_DEADZONE = 0.5f
     // A gap longer than this is ignored when scoring rhythm (someone paused).
     private const val GAP_MAX_MS = 4000f
 
@@ -220,7 +228,18 @@ object AutoSegmenter {
             val durationMs = (window.last().t - window.first().t) / 1_000_000f
 
             // Too short to be a deliberate shake — just a bump while typing.
-            if (durationMs >= SHAKE_MIN_MS && peak >= SHAKE_ENERGY) {
+            //
+            // The reversal test matters as much as the energy. Picking a phone
+            // up off a desk produces a long, strong, one-directional movement
+            // that satisfies both of the other conditions, and it was being
+            // detected as the FIRST ACTION of the routine. Every unlock attempt
+            // then failed with "expected Tap, got Shake" — but only when the
+            // user was holding the phone, never when it lay flat on the desk.
+            // A shake goes one way and then comes back; lifting does not.
+            if (durationMs >= SHAKE_MIN_MS &&
+                peak >= SHAKE_ENERGY &&
+                directionReversals(window) >= SHAKE_MIN_REVERSALS
+            ) {
                 val touchesDuring = contacts.any { contact ->
                     contact.first().t <= window.last().t && contact.last().t >= window.first().t
                 }
@@ -236,6 +255,39 @@ object AutoSegmenter {
             i = j
         }
         return out
+    }
+
+    /**
+     * How many times the strongest axis reversed direction.
+     *
+     * A deliberate shake is oscillatory: the phone goes one way, comes back,
+     * goes the other way. Lifting a phone off a desk is a single movement in
+     * one direction, which can be just as strong and just as long. Energy and
+     * duration cannot tell those apart; oscillation can.
+     */
+    private fun directionReversals(window: List<MotionPoint>): Int {
+        if (window.size < 2) return 0
+
+        // Work on whichever axis moved the most, so a diagonal movement still
+        // produces a clear signal.
+        var sx = 0f; var sy = 0f; var sz = 0f
+        for (m in window) {
+            sx += abs(m.accelX); sy += abs(m.accelY); sz += abs(m.accelZ)
+        }
+        val axis = if (sx >= sy && sx >= sz) 0 else if (sy >= sz) 1 else 2
+
+        var reversals = 0
+        var lastSign = 0
+        for (m in window) {
+            val v = when (axis) { 0 -> m.accelX; 1 -> m.accelY; else -> m.accelZ }
+            // Ignore values inside the noise band around zero, otherwise
+            // sensor jitter reads as a direction change.
+            if (abs(v) < SHAKE_DEADZONE) continue
+            val sign = if (v > 0f) 1 else -1
+            if (lastSign != 0 && sign != lastSign) reversals++
+            lastSign = sign
+        }
+        return reversals
     }
 
     /** Is this sample moving much more than a phone lying still? */
