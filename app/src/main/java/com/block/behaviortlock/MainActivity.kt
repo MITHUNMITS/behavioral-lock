@@ -57,6 +57,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.block.behaviortlock.ui.ActionCard
 import com.block.behaviortlock.ui.BlockTheme
 import com.block.behaviortlock.ui.DeviceStatusContent
+import com.block.behaviortlock.ui.HoldPreviewRow
 import com.block.behaviortlock.ui.OnboardingScreen
 import com.block.behaviortlock.ui.SplashScreen
 import com.block.behaviortlock.ui.DiagnosticsContent
@@ -365,31 +366,17 @@ private fun HomeContent(vm: AppViewModel, navigate: (Screen) -> Unit) {
                         RoutineTimeline(vm.enrolledEvents)
                         Spacer(Modifier.height(16.dp))
 
-                        // Say plainly whether the "hold it the same way" factor
-                        // is actually active. A routine enrolled with the phone
-                        // lying flat has no hold reference, and without this the
-                        // user has no way to tell that from a broken feature.
+                        // Show how the phone should be held, drawn at the angle the routine was
+                        // actually enrolled at, plus whether the factor is live.
                         when (val grip = vm.enrolledGrip) {
-                            is AppViewModel.GripInfo.None -> {
-                                Text(
-                                    "Hold angle: NOT ENROLLED. This routine was " +
-                                        "recorded with the phone lying flat, so the " +
-                                        "angle you hold it at is not checked. " +
-                                        "Re-record it while holding the phone.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                            }
-                            is AppViewModel.GripInfo.Enrolled -> {
-                                Text(
-                                    "Hold angle: tilt " +
-                                        "${fmt1(grip.pitch)}° / ${fmt1(grip.roll)}°, " +
-                                        "wobble ±${fmt1(grip.jitter)}° — checked " +
-                                        "within 20°",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            is AppViewModel.GripInfo.None -> HoldPreviewRow(
+                                pitchDeg = null, rollDeg = null, wobbleDeg = null
+                            )
+                            is AppViewModel.GripInfo.Enrolled -> HoldPreviewRow(
+                                pitchDeg = grip.pitch,
+                                rollDeg = grip.roll,
+                                wobbleDeg = grip.jitter
+                            )
                         }
                     }
                 }
