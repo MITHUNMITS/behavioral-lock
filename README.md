@@ -36,6 +36,7 @@ flowchart LR
 | [Architecture](#architecture) | Layers, modules and data flow |
 | [How it works](#how-it-works) | Capture → segment → shape → score |
 | [The setup flow](#the-setup-flow) | First launch, permissions, enrolment |
+| [Multi-take enrolment](#multi-take-enrolment) | Why the routine is recorded three times |
 | [The unlock flow](#the-unlock-flow) | What happens when the phone locks |
 | [How matching works](#how-matching-works) | Scoring, thresholds, why they are what they are |
 | [How the lock works](#how-the-lock-works) | Two modes, and the keyguard limitation |
@@ -97,12 +98,13 @@ flowchart TB
     subgraph ENGINE["Engine — pure Kotlin, no Android UI"]
         SEG["AutoSegmenter<br/>what did you just do?"]
         SHAPE["ShapeBuilder<br/>64 dots + statistics"]
+        MT["MultiTakeScorer<br/>best of the recorded takes"]
         SCORE["SessionScorer<br/>the pass conditions"]
         FSCORE["Scorer<br/>shape + position"]
     end
 
     subgraph DATA["Storage"]
-        PS["ProfileStore<br/>private internal JSON"]
+        PS["ProfileStore<br/>3 takes, private internal JSON"]
     end
 
     MA --> RS
@@ -116,7 +118,8 @@ flowchart TB
     PROBE -.-> REC
     REC --> SEG --> SHAPE --> SCORE --> FSCORE
     SEG --> PS
-    PS --> SCORE
+    PS -.3 takes.-> MT
+    MT -->|"best of N"| SCORE
     REC --> PS
 
     style ENGINE fill:#0B1220,color:#E2E8F0,stroke:#38BDF8
@@ -132,7 +135,7 @@ flowchart TB
 | **Locking** (`LockOverlay`, `LockService`, `Watchdog`) | Engine + capture | Compose (it is a raw `View` on purpose) |
 | **Presentation** (`MainActivity`, `ui/`) | Everything | Sensor hardware |
 
-The engine has **no Android imports at all**, which is why all 61 unit tests run
+The engine has **no Android imports at all**, which is why all 71 unit tests run
 on a plain JVM in about a second with no device or emulator.
 
 > `LockOverlay` deliberately builds its UI with raw `View`s instead of Compose.
@@ -189,7 +192,7 @@ flowchart TD
     D -->|no| E{"duration ≤ 700 ms<br/>AND span ≥ 180 px<br/>AND straight ≥ 0.82?"}
     E -->|yes| S["SWIPE"]
     E -->|no| F["DRAW"]
-    B --> G{"Any motion window with<br/>accel ≥ 5 m/s² or gyro ≥ 1.2 rad/s<br/>and no finger down?"}
+    B --> G{"Motion window, no finger down:<br/>≥ 200 ms long, strong on EITHER sensor<br/>(accel ≥ 8 m/s² or gyro ≥ 1.2 rad/s),<br/>AND ≥ 3 direction reversals?"}
     G -->|yes| SH["SHAKE — merged back<br/>into time order"]
     style T fill:#0C4A6E,color:#fff
     style H fill:#0C4A6E,color:#fff
@@ -203,6 +206,16 @@ flowchart TD
 > distance travelled. A finger resting on glass wobbles, and wobbling adds up a
 > lot of path while going nowhere. Measuring path turned plain taps into
 > "swipes" on a real device.
+
+> **A shake oscillates; picking a phone up does not.** That is the whole shake
+> rule. Lifting the phone off a desk is long, strong and *one-directional*, and
+> it was being detected as the first action of the routine — every unlock failed
+> with `expected Tap, got Shake`, but only while holding the phone. Requiring
+> **three direction reversals** separates them. Two details matter: strength is
+> judged on **either** sensor (a wrist-driven shake has big rotation rates and
+> modest acceleration, and checking acceleration alone made it undetectable),
+> and the axis is re-chosen **per sample**, because a real shake travels across
+> all three axes and a single fixed axis only ever saw part of it.
 
 The only thing a user has to learn:
 
@@ -261,7 +274,9 @@ and size are kept as fractions of the screen for exactly that reason.
 
 ```mermaid
 flowchart TD
-    START(["Unlock attempt"]) --> C{"countOk<br/>exact number of actions?"}
+    START(["Unlock attempt"]) --> REP["Compare against<br/>ALL 3 recorded takes"]
+    REP --> BEST["Keep the best result<br/>(passing beats failing, then score)"]
+    BEST --> C{"countOk<br/>exact number of actions?"}
     C -->|no| F1["✗ Wrong number of actions"]
     C -->|yes| S{"sequenceOk<br/>same kinds in the same order?"}
     S -->|no| F2["✗ Wrong sequence of actions"]
@@ -273,6 +288,8 @@ flowchart TD
     E -->|no| F5["✗ Mismatch: per-factor reason"]
     E -->|yes| OK(["🔓 UNLOCKED"])
     style OK fill:#0B1220,color:#7DD3FC,stroke:#38BDF8,stroke-width:3px
+    style REP fill:#0B1220,color:#7DD3FC,stroke:#38BDF8
+    style BEST fill:#0B1220,color:#7DD3FC,stroke:#38BDF8
     style F1 fill:#3B0A0A,color:#FCA5A5
     style F2 fill:#3B0A0A,color:#FCA5A5
     style F3 fill:#3B0A0A,color:#FCA5A5
@@ -282,6 +299,9 @@ flowchart TD
 
 These are **pass conditions**, not decoration. Every one of them can refuse an
 unlock, and each produces its own headline so the user knows what to fix.
+
+The whole chain runs **three times** — once against each recorded take — and the
+best result wins. See [Multi-take enrolment](#multi-take-enrolment).
 
 ---
 
@@ -301,19 +321,27 @@ flowchart TD
     WARN --> OB2
     GATE -->|yes| OB3["Onboarding 3 of 3<br/>Record your routine"]
     OB3 --> REC
-    REC["Recorder screen<br/>Press 'Enroll now'"]
+    REC["Recorder — Take 1 of 3<br/>Press 'Enroll now'"]
     REC --> PERFORM["Perform the whole routine<br/>in one continuous go<br/>(max 30 s)"]
     PERFORM --> SEG["Auto-segment:<br/>tap, draw, hold, shake…"]
-    SEG --> REVIEW["Review screen<br/>icons + timeline of<br/>every detected action"]
+    SEG --> NEXT{"Takes saved<br/>&lt; 3?"}
+    NEXT -->|yes| AGAIN
+    AGAIN["Recorder — Take 2 then 3<br/>straight on, no decision"]
+    AGAIN --> PERFORM
+    NEXT -->|no| REVIEW["Summary — icons + timeline,<br/>hold-angle preview,<br/>● ● ●"]
     REVIEW -->|"Record again"| REC
     REVIEW -->|"Test it"| TEST["Test screen<br/>live green ticks"]
-    REVIEW -->|"Done"| ENROLLED["Saved to private storage<br/>setupDone = true"]
+    REVIEW -->|"Done"| ENROLLED["3 takes saved to private storage<br/>setupDone = true"]
     ENROLLED --> HOME
 
     style HOME fill:#0B1220,color:#7DD3FC
     style ENROLLED fill:#0B1220,color:#7DD3FC
+    style REVIEW fill:#0B1220,color:#7DD3FC
     style WARN fill:#3B0A0A,color:#FCA5A5
 ```
+
+Three recordings are **mandatory** and chain automatically — there is no
+decision between them and no way to stop at one and assume it is done.
 
 ### Steps, as a person experiences them
 
@@ -329,23 +357,102 @@ flowchart TD
    lock genuinely cannot run without it. "Skip for now" is always available and
    can never trap anyone.
 4. **Step 3 — record a routine.** One button drops you straight into the recorder.
-5. **Enrol.** Press **Enroll now**, then perform your whole routine as one
+5. **Take 1.** Press **Enroll now**, then perform your whole routine as one
    continuous action — tap, draw, hold, shake, whatever you like. The app
    detects each action and drops a marker on it. Recording stops by itself after
    30 seconds, or early with **Stop**.
-6. **Review.** Every detected action is shown as an icon on a timeline. *Record
-   again* if it is wrong, *Test it* to watch it match live.
+6. **Takes 2 and 3.** The app goes straight back to the recorder, labelled
+   **Take 2 of 3**, and you perform the same routine again. There is nothing to
+   decide between takes and no way to stop at one.
 
-   If the routine was recorded with the phone lying flat, the review screen
-   says so immediately and offers **Re-record while holding the phone** — a flat
+   If a take is rejected — most often *"That is a different routine"* — it says so
+   plainly, because each take must be the same actions in the same order.
+7. **Summary.** Every detected action is shown as an icon on a timeline, with the
+   hold-angle preview and `● ● ●`. *Record again* starts over from a clean
+   slate, *Test it* watches it match live.
+
+   If the routine was recorded with the phone lying flat, the summary says so
+   immediately and offers **Re-record while holding the phone** — a flat
    recording carries no information about how you hold the phone, so it cannot
    be recovered afterwards. Catching it here, rather than on the home screen
    days later, is the difference between a one-tap fix and a forgotten feature.
-7. **Turn the lock on.** From the home screen.
+8. **Turn the lock on.** From the home screen.
 
 > **Tip:** enrol while holding the phone the way you normally hold it. The
 > grip factor records the angle, and it is skipped if you later unlock with the
 > phone flat on a table.
+
+---
+
+## Multi-take enrolment
+
+The routine is recorded **three times**, back to back, and an unlock attempt is
+compared against all three. The best result wins.
+
+### Why
+
+One enrolment is **one arbitrary sample** of how you happened to behave on one
+day. Demanding you reproduce it exactly is what produced the repeated
+*"sometimes it works, sometimes it doesn't"*, and the only cure available at the
+time was widening a tolerance until the owner stopped being rejected — which
+quietly weakens the lock and is still guesswork.
+
+Recording three times measures your **actual range** instead of guessing at it.
+A genuine attempt is accepted if it resembles **any one** of them.
+
+```mermaid
+flowchart LR
+    A["Take 1<br/>enrolled"] --> D{"Your attempt"}
+    B["Take 2"] --> D
+    C["Take 3"] --> D
+    D --> E["Match against ALL 3"]
+    E --> F["Keep the best<br/>passing beats failing, then score"]
+    F --> G(["🔓 Unlocks if<br/>ANY take matches"])
+    style G fill:#0B1220,color:#7DD3FC,stroke:#38BDF8,stroke-width:3px
+```
+
+Exactly three, never fewer and never more. Fewer cannot show a range; more
+widens what the lock accepts without adding meaningful reliability.
+
+### How the best is chosen
+
+Not simply "highest score". A **passing** result always beats a **failing** one,
+however high the failure scored — otherwise a take that fails the exact-count
+rule at 99% would outrank one that genuinely matches at 61%. There is a test
+for exactly this.
+
+### The honest cost
+
+> This genuinely **lowers the bar**. An intruder needs to match **one of three**
+> references rather than one of one. They still do not know any of them, so it
+> is not a break — but it is a real reduction in margin, and it grows with the
+> number of takes. That is why the count is fixed at three and not "as many as
+> you like".
+
+The same sentence is worth having ready if this is examined: *the same number of
+takes that makes the owner reliably get in also makes an intruder marginally
+more likely to.*
+
+Every refusal records **how many takes matched**, so moving to a stricter
+"2 of 3" rule is a decision made from data rather than taste.
+
+### It cannot become a security loophole
+
+Both were tested:
+
+- **Extra actions still never unlock**, however many takes exist — every take
+  has the same number of actions as the routine, so none can match an over-long
+  attempt.
+- **A genuinely wrong routine still fails** with three takes — the right count
+  and tempo but the wrong hold is still refused.
+
+### Backwards compatible
+
+The first take is stored under the same key as before and is still written to
+disk; the other two are purely additive. An existing saved routine cannot be lost,
+and a profile written by any version of the app reads in any other. With a single
+take, the best-of-N logic returns **exactly** what the old single-reference
+comparison returned — there is a test asserting identical pass, score and headline.
 
 ---
 
@@ -364,16 +471,17 @@ sequenceDiagram
     S->>S: lockEnabled? no → do nothing
     U->>S: screen turns on
     S->>O: show full-screen overlay
+    O->>O: load all 3 enrolled takes
     O->>O: start recorder, begin 45 s countdown
     loop every 100 ms
         O->>O: 45 s elapsed? → dismiss (safety)
-        O->>O: live segment + live score, mark matched actions green
+        O->>O: live segment, score vs all 3 takes,<br/>mark matched actions green
         O->>O: enough actions? → wait 700 ms<br/>for the routine to settle
     end
-    alt routine matched
+    alt matched any take
         O->>W: disarm alarm
         O->>O: dismiss → phone unlocked
-    else not matched
+    else matched no take
         O->>U: "Didn't match" + reason + Try again
     else 3 failed attempts
         O->>U: "Too many attempts" + Try again + Use system PIN
@@ -592,6 +700,7 @@ flowchart TB
         T["Trace.kt<br/>what a gesture looks like"]
         SH["Shape.kt<br/>64 dots + statistics"]
         AS["AutoSegmenter.kt<br/>what did you just do?"]
+        MT["MultiTakeScorer.kt<br/>best of the 3 takes"]
         SS["SessionScorer.kt<br/>the pass conditions"]
         SC["Scorer.kt<br/>shape + position"]
         RS2["RoutineScorer.kt"]
@@ -599,7 +708,7 @@ flowchart TB
     subgraph IO["Capture & storage"]
         RC["Recorder.kt<br/>touch + sensors on one clock"]
         SP2["SensorProbe.kt"]
-        PF["Profile.kt"]
+        PF["Profile.kt<br/>stores all 3 takes"]
     end
     subgraph LOCK2["Locking"]
         LO2["LockOverlay.kt"]
@@ -623,12 +732,13 @@ app/src/main/java/com/block/behaviortlock/
 ├── Trace.kt            what a recorded gesture looks like
 ├── Shape.kt            reduces a gesture to 64 dots + statistics
 ├── AutoSegmenter.kt    works out what you did, without you declaring it
-├── SessionScorer.kt    compares a whole attempt against the routine
+├── SessionScorer.kt    compares one attempt against one reference
+├── MultiTakeScorer.kt  compares it against all 3 takes, keeps the best
 ├── Scorer.kt           shape matching and factor scoring
 ├── RoutineScorer.kt    per-action helper scoring
 ├── Recorder.kt         records sensors AND touches on one clock
 ├── SensorProbe.kt      live sensor feed for Diagnostics
-├── Profile.kt          saves/loads the enrolled routine
+├── Profile.kt          saves/loads the enrolled routine (all 3 takes)
 ├── AppViewModel.kt     single source of truth for the UI
 ├── AdminReceiver.kt    device-admin permission + the two lock modes
 ├── Watchdog.kt         the safety net (most important file)
@@ -648,6 +758,7 @@ app/src/main/java/com/block/behaviortlock/
 | What a gesture looks like | `Trace.kt` |
 | How it knows what you did | `AutoSegmenter.kt` |
 | How matching works | `Shape.kt`, then `SessionScorer.kt` |
+| Why 3 recordings are compared | `MultiTakeScorer.kt` |
 | How data is captured | `Recorder.kt` |
 | Why the phone can't get locked out | `Watchdog.kt` |
 | The screens | `MainActivity.kt`, then `ui/` |
@@ -664,7 +775,7 @@ Requires Android Studio (Ladybug or newer) with JDK 17+.
 | Kotlin | 2.4.x *(built into AGP 9 — do **not** apply `kotlin.android`)* |
 | `compileSdk` / `targetSdk` | 37 / 35 |
 | `minSdk` | 29 (Android 10) |
-| Tests | 61 unit tests, plain JVM, no device needed |
+| Tests | 71 unit tests, plain JVM, no device needed |
 
 ```bash
 # Unit tests — the whole engine, in about a second
@@ -727,5 +838,6 @@ already covered by the phone's own disk encryption.
   with a drawn shape or a hold matches far more reliably.
 - **MIUI (Xiaomi)** aggressively kills background apps, which is why the lock
   runs as a foreground service.
-- **Enrolment is a single take.** There is no averaging across several
-  recordings yet; that would make matching noticeably more robust.
+- **Three takes widen what the lock accepts.** Matching the best of three
+  recordings is more forgiving than matching one — which is the point — but it
+  genuinely lowers the bar. See [Multi-take enrolment](#multi-take-enrolment).
