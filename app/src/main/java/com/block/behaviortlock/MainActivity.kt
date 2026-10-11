@@ -530,7 +530,18 @@ private fun RecorderRoute(
                     }
                 } else {
                     vm.enroll(trace)
-                    stage = 1
+                    recorder.clear()
+                    recorderEpoch++
+                    // Chain into take 2 exactly as takes 2 and 3 chain into each
+                    // other. The first take used to stop at the summary, which
+                    // meant it alone needed a manual tap to reach take 2.
+                    if (vm.takeCount < AppViewModel.MAX_TAKES) {
+                        addingTake = true
+                        stage = 0
+                    } else {
+                        addingTake = false
+                        stage = 1
+                    }
                 }
             },
             onCancel = onExit
