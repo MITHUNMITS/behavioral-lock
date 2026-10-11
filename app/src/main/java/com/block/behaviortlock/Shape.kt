@@ -96,8 +96,33 @@ data class Shape(
      * genuinely tilted, i.e. actually being held.
      */
     val hasGrip: Boolean
-        get() = !meanPitch.isNaN() && !meanRoll.isNaN() &&
-            (abs(meanPitch) > 10f || abs(meanRoll) > 10f)
+        get() = hasAttitude && !isFlat
+
+    /**
+     * True when the phone reported attitude at all.
+     *
+     * This is the ONLY condition that means "cannot be measured". A phone lying
+     * flat DOES have a perfectly good measurement — pitch and roll near zero —
+     * and that measurement is meaningful: it says the phone is lying on a
+     * table rather than being held.
+     */
+    val hasAttitude: Boolean
+        get() = !meanPitch.isNaN() && !meanRoll.isNaN() && !tiltJitterDeg.isNaN()
+
+    /**
+     * True when the phone is lying flat rather than being held.
+     *
+     * Only the ENROLMENT uses this. A routine recorded flat on a desk cannot
+     * describe how a person holds a phone, and demanding that the owner also
+     * unlock lying flat would mean putting the phone on a table to open it. So
+     * a flat enrolment means "no hold reference", and grip is skipped.
+     *
+     * A flat ATTEMPT is different: it is a real observation, and against a
+     * routine that was enrolled while held it is exactly the difference that
+     * should be refused.
+     */
+    val isFlat: Boolean
+        get() = abs(meanPitch) <= 10f && abs(meanRoll) <= 10f
 
     /** True when this phone actually reports real pressure values.
      *

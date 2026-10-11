@@ -374,6 +374,22 @@ class SessionScorerTest {
     }
 
     @Test
+    fun `a flat attempt against a held routine must fail`() {
+    // REAL DEVICE REGRESSION. A routine enrolled while the phone was held in
+    // the hand unlocked fine with the phone lying flat on a table. The "flat"
+    // rule was applied to both sides, so a flat ATTEMPT was treated as
+    // unmeasurable and skipped grip entirely -- the exact opposite of the
+    // intent. A flat attempt is a real, measurable observation, and against a
+    // held reference it is a genuine difference.
+    val enrolled = tapsHeldAt(-21f, 4.3f, 1.5f, longArrayOf(0, 250, 250, 250))
+    val attempt = tapsHeldAt(-0.6f, 4.0f, 0.4f, longArrayOf(0, 250, 250, 250))
+    val result = SessionScorer.compare(enrolled, attempt)
+    assertTrue("the attempt is measurable, so grip must be checked", result.gripMeasured)
+    assertTrue("lying flat is not holding it the same way", !result.gripOk)
+    assertTrue("got '${result.headline}'", !result.passed)
+}
+
+@Test
     fun `a routine enrolled flat on a desk never blocks on grip`() {
         // REAL DEVICE REGRESSION. The phone was enrolled lying flat on a desk
         // (tilt jitter 0.5 degrees, the physical minimum) and then every unlock

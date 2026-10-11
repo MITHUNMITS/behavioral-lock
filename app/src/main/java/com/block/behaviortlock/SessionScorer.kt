@@ -266,7 +266,18 @@ object SessionScorer {
     private fun grip(enrolled: DetectedSession, attempt: DetectedSession): Grip {
         val a = enrolled.grip
         val b = attempt.grip
-        if (!a.hasGrip || !b.hasGrip) return Grip(true, false, 100f)
+
+        // Only the ENROLMENT decides whether there is a hold reference at all.
+        // A routine recorded flat on a desk cannot be reproduced by a hand, so
+        // grip is skipped rather than turned into "you must unlock lying flat".
+        //
+        // The attempt is a different matter. If the phone was held when the
+        // routine was enrolled and is now lying flat on a table, that is a
+        // genuine 20-degree difference and it is exactly what this factor is
+        // for. Treating a flat ATTEMPT as "unmeasurable" let it bypass grip
+        // completely, which is the opposite of what was intended.
+        if (!a.hasGrip) return Grip(true, false, 100f)
+        if (!b.hasAttitude) return Grip(true, false, 100f)
 
         val angleDiff = maxOf(
             angleBetween(a.meanPitch, b.meanPitch),
