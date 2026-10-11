@@ -519,6 +519,10 @@ private fun RecorderRoute(
                     addingTake = false
                     recorder.clear()
                     recorderEpoch++
+                    // Go BACK to the review screen. Staying here stranded the
+                    // user on the recorder with no way to reach "Record take 3",
+                    // because the review screen is where that button lives.
+                    stage = 1
                 } else {
                     vm.enroll(trace)
                     stage = 1
@@ -544,6 +548,7 @@ private fun RecorderRoute(
                     stage = 0
                 }
             },
+            infoMessage = takeMessage,
             onRemoveTake = { vm.removeTake(it) },
             onRecordAgain = { backToRecording() },
             onTest = {

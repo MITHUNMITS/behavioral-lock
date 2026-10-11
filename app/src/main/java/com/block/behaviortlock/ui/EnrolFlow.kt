@@ -74,6 +74,8 @@ fun EnrolReviewScreen(
     takeCount: Int = 1,
     maxTakes: Int = 5,
     recommendedTakes: Int = 3,
+    /** Transient feedback from the last saved or rejected take. */
+    infoMessage: String? = null,
     onAddTake: () -> Unit = {},
     onRemoveTake: (Int) -> Unit = {},
     onRecordAgain: () -> Unit,
@@ -113,6 +115,14 @@ fun EnrolReviewScreen(
             subtitle = "$takeCount of $maxTakes"
         ) {
             Column {
+                if (infoMessage != null) {
+                    Text(
+                        infoMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
                 Text(
                     if (takeCount < recommendedTakes)
                         "One recording is a single sample of how you happen to " +
