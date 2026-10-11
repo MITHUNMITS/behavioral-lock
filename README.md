@@ -335,6 +335,12 @@ flowchart TD
    30 seconds, or early with **Stop**.
 6. **Review.** Every detected action is shown as an icon on a timeline. *Record
    again* if it is wrong, *Test it* to watch it match live.
+
+   If the routine was recorded with the phone lying flat, the review screen
+   says so immediately and offers **Re-record while holding the phone** — a flat
+   recording carries no information about how you hold the phone, so it cannot
+   be recovered afterwards. Catching it here, rather than on the home screen
+   days later, is the difference between a one-tap fix and a forgotten feature.
 7. **Turn the lock on.** From the home screen.
 
 > **Tip:** enrol while holding the phone the way you normally hold it. The
@@ -362,7 +368,7 @@ sequenceDiagram
     loop every 100 ms
         O->>O: 45 s elapsed? → dismiss (safety)
         O->>O: live segment + live score, mark matched actions green
-        O->>O: enough actions? → judge once
+        O->>O: enough actions? → wait 700 ms<br/>for the routine to settle
     end
     alt routine matched
         O->>W: disarm alarm
@@ -382,6 +388,38 @@ sequenceDiagram
 | Never traps the user | The overlay **auto-releases after 45 seconds**, always |
 | Never dead-ends | "Try again" is offered on *every* failure panel, including "Too many attempts" |
 | Never a partial unlock | Exact count match — a prefix of the routine never opens it |
+
+### The routine has to settle before it is judged
+
+The lock does **not** judge the instant the expected number of actions has
+arrived. It waits **700 ms** for the routine to stop changing first.
+
+That matters more than it sounds. A finger that lifts even slightly splits one
+tap into two contacts, which reaches the expected count early and judges a
+half-finished routine. A routine ending in a long press then failed with
+`expected Hold, got Tap`, purely because the judge ran while the press was
+still resolving — and because it depended on exactly where a 100 ms poll landed
+relative to the finger, it felt random rather than broken.
+
+Waiting means the whole routine is always judged. Nothing is weakened by it:
+extra actions arriving inside the settle window are still counted, the
+exact-count rule still applies, and the 45-second release is unaffected.
+
+### Getting it wrong quietly is the real enemy
+
+Three separate bugs in this app shared one root cause: **a factor that was
+doing nothing looked exactly like a factor that was working.** Attitude was
+never assigned so grip was always skipped; a flat enrolment silently disabled
+angle matching; a desk recording could never be matched by a hand.
+
+Each is now stated in the interface rather than left to be discovered:
+
+- the home screen shows a 3D drawing of the recorded hold, and says so plainly
+  when the hold factor is not active, with a button to re-record
+- the enrolment review screen catches a flat recording immediately, while it
+  is still one tap from being fixed
+- every refused attempt is written to `files/last-attempt.txt` with all of its
+  numbers, so a failure can be read back afterwards instead of guessed at
 
 ---
 
