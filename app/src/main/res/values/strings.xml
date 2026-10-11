@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Behavioural Lock</string>
+    <string name="device_admin_label">Behavioural Lock</string>
+    <string name="device_admin_description">Allows Behavioural Lock to lock the phone and show its own unlock screen over the system lock. The app cannot read your data — it only reads motion sensors and your unlock gesture.</string>
+    <string name="notification_channel_name">Lock service</string>
+    <string name="notification_title">Behavioural Lock is active</string>
+    <string name="notification_text">Tap to open settings. Swipe the power button to lock.</string>
+</resources>

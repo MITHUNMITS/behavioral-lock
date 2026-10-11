@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Launch window background, painted by Android before Compose's first frame.
+
+  It is a flat colour on purpose. The launcher icon is an adaptive icon (an XML
+  resource), and a <bitmap> element cannot reference one — attempting that
+  throws Resources$NotFoundException at launch. The animated Compose splash
+  draws the logo immediately afterwards.
+
+  The colour itself is defined in values/colors.xml and values-night/colors.xml
+  so it follows the system light/dark setting.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/splash_background" />
+</shape>

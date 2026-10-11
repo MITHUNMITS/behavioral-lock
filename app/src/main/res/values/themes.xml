@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Launch theme, used by MainActivity.
+         The window background is what Android paints BEFORE the first Compose
+         frame exists. It must match the Compose background in both light and
+         dark mode (see values/colors.xml and values-night/colors.xml),
+         otherwise the app visibly jumps colour on launch. -->
+    <style name="Theme.Block.Starting" parent="Theme.Block">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+    </style>
+
+    <!-- Base theme. Colours are applied in Compose (see ui/Theme.kt); this only
+         needs to avoid an action bar and draw edge-to-edge. The window
+         background is matched to the Compose palette so there is never a seam
+         if a screen has not painted its own background yet. -->
+    <style name="Theme.Block" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/app_window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

@@ -1,0 +1,188 @@
+package com.block.behaviortlock
+
+import android.app.Application
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.AndroidViewModel
+
+// ---------------------------------------------------------------------------
+// AppViewModel.kt — holds the app's state: the one enrolled recording, whether
+// the lock is on, and the result of the most recent unlock attempt.
+//
+// The model is deliberately simple now: instead of a list of named segments,
+// there is ONE enrolled session that the user recorded in a single go. The app
+// works out what was in it automatically.
+// ---------------------------------------------------------------------------
+
+class AppViewModel(app: Application) : AndroidViewModel(app) {
+
+    private var profile = ProfileStore.load(app)
+
+    // --- state exposed to the UI ---
+    var enrolledTrace by mutableStateOf(profile.enrolledTrace)
+        private set
+    var enrolledSummary by mutableStateOf(profile.enrolledSummary)
+        private set
+    var lockEnabled by mutableStateOf(profile.lockEnabled)
+        private set
+    var strongMode by mutableStateOf(profile.strongMode)
+        private set
+    var setupDone by mutableStateOf(profile.setupDone)
+        private set
+    var securityLevel by mutableStateOf(profile.securityLevel)
+        private set
+    var attemptsBeforePin by mutableStateOf(profile.attemptsBeforePin)
+        private set
+    var lockDelaySeconds by mutableStateOf(profile.lockDelaySeconds)
+        private set
+    var stringMode by mutableStateOf(profile.stringMode)
+        private set
+
+    /** The most recent unlock attempt, shown on the lock screen. */
+    var lastResult by mutableStateOf<SessionResult?>(null)
+        private set
+
+    /** The detected actions inside the enrolled routine, for the summary card. */
+    val enrolledEvents: List<DetectedEvent>
+        get() = enrolledTrace?.let { AutoSegmenter.segment(it).events } ?: emptyList()
+
+    private fun persist() {
+        profile = profile.copy(
+            enrolledTrace = enrolledTrace,
+            enrolledSummary = enrolledSummary,
+            lockEnabled = lockEnabled,
+            strongMode = strongMode,
+            setupDone = setupDone,
+            securityLevel = securityLevel,
+            attemptsBeforePin = attemptsBeforePin,
+            lockDelaySeconds = lockDelaySeconds,
+            stringMode = stringMode
+        )
+        ProfileStore.save(getApplication(), profile)
+    }
+
+    // -- enrolment -----------------------------------------------------------
+
+    /** Save a newly recorded session as the user's routine. */
+    fun enroll(trace: Trace) {
+        val session = AutoSegmenter.segment(trace, stringMode)
+        enrolledTrace = trace
+        enrolledSummary = session.summary()
+        persist()
+    }
+
+    fun clearEnrolled() {
+        enrolledTrace = null
+        enrolledSummary = ""
+        persist()
+    }
+
+    // -- usability checks -----------------------------------------------------
+
+    /**
+     * True when the enrolled routine is good enough to lock with.
+     *
+     * We insist on at least two distinct actions. A routine of a single tap is
+     * trivially guessable and would give a false sense of security, so we
+     * refuse to let the user lock the phone with one.
+     */
+    fun isRoutineUsable(): Boolean {
+        // A string is one continuous stroke that is hard to guess, so a single
+        // event is meaningful there. Other modes need at least two actions,
+        // because one tap on its own would be trivially guessable.
+        val trace = enrolledTrace
+        if (stringMode) return trace != null && trace.touches.size > 20
+        return enrolledEvents.size >= 2
+    }
+
+    /** Why the lock cannot be turned on yet — shown in red on the home screen. */
+    fun routineProblem(): String? {
+        if (enrolledTrace == null) {
+            return "Record your routine first. Tap \"Set up routine\" and perform " +
+                "a short sequence of actions."
+        }
+        if (stringMode) {
+            return if (enrolledTrace?.touches?.size ?: 0 <= 20)
+                "That string is too short. Draw a longer stroke so it is secure."
+            else null
+        }
+        val events = enrolledEvents
+        if (events.size < 2) {
+            return "Your routine only has ${events.size} action. Do at least two " +
+                "different actions (for example tap, then draw) so it is secure."
+        }
+        return null
+    }
+
+    // -- settings -------------------------------------------------------------
+
+    fun updateLockEnabled(enabled: Boolean) {
+        // Never let the lock engage with a routine that cannot be matched.
+        if (enabled && !isRoutineUsable()) {
+            lockEnabled = false
+            LockService.stop(getApplication())
+            persist()
+            return
+        }
+        lockEnabled = enabled
+        if (!enabled) {
+            // Turning the lock off must always give the phone back to the user.
+            strongMode = false
+            Watchdog.restoreSystemLock(getApplication())
+            LockService.stop(getApplication())
+        } else {
+            LockService.start(getApplication())
+        }
+        persist()
+    }
+
+    fun updateStrongMode(enabled: Boolean) {
+        if (enabled) {
+            strongMode = AdminReceiver.enableStrongMode(getApplication())
+        } else {
+            Watchdog.restoreSystemLock(getApplication())
+            strongMode = false
+        }
+        persist()
+    }
+
+    fun updateSecurityLevel(level: String) {
+        securityLevel = level
+        persist()
+    }
+
+    fun updateStringMode(enabled: Boolean) {
+        // Changing this changes how a routine is read, so the old enrolment is
+        // no longer valid and must be discarded rather than silently mismatched.
+        stringMode = enabled
+        enrolledTrace = null
+        enrolledSummary = ""
+        persist()
+    }
+
+    fun updateLockDelay(seconds: Int) {
+        lockDelaySeconds = seconds
+        persist()
+    }
+
+    fun completeSetup() {
+        setupDone = true
+        persist()
+    }
+
+    // -- unlock ---------------------------------------------------------------
+
+    /** Score a fresh attempt against the enrolled routine. */
+    fun verify(attempt: Trace): SessionResult {
+        val enrolled = enrolledTrace?.let { AutoSegmenter.segment(it, stringMode) } ?: DetectedSession()
+        val attempted = AutoSegmenter.segment(attempt, stringMode)
+        val result = SessionScorer.compare(enrolled, attempted)
+        lastResult = result
+        return result
+    }
+
+    fun clearResult() {
+        lastResult = null
+    }
+}

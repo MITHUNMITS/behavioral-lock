@@ -1,0 +1,26 @@
+# Gradle
+.gradle/
+build/
+app/build/
+.kotlin/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+captures/
+
+# Local machine configuration (contains the SDK path)
+local.properties
+
+# Keystore — never commit signing keys
+*.jks
+*.keystore
+
+# Diagnostic artefacts pulled off a device during testing
+*.apk
+*.png
+last-attempt.txt
+
+# OS
+.DS_Store
+Thumbs.db

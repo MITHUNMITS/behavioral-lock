@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      app_window_background is painted by Android before Compose draws anything.
+      It MUST equal the Compose background for the matching mode, otherwise the
+      app visibly jumps colour on launch. These two values are duplicated in
+      ui/Theme.kt (LightColors.background / DarkColors.background) — if you
+      change one, change the other.
+    -->
+    <color name="app_window_background">#F8FAFC</color>
+
+    <!-- The launch window background. Same colour as the app window so the
+         hand-off from the launch window into the splash is invisible. -->
+    <color name="splash_background">#F8FAFC</color>
+</resources>

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Padlock shackle -->
+    <path
+        android:strokeColor="#7DD3FC"
+        android:strokeWidth="4"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:pathData="M42,46 L42,38 A12,12 0 0,1 66,38 L66,46" />
+    <!-- Padlock body -->
+    <path
+        android:fillColor="#7DD3FC"
+        android:pathData="M36,48 L72,48 A4,4 0 0,1 76,52 L76,72 A4,4 0 0,1 72,76 L36,76 A4,4 0 0,1 32,72 L32,52 A4,4 0 0,1 36,48 Z" />
+    <!-- Fingerprint / gesture dot in the middle -->
+    <path
+        android:fillColor="#0B1220"
+        android:pathData="M54,56 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+    <path
+        android:strokeColor="#0B1220"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M46,68 A10,10 0 0,1 46,60" />
+    <path
+        android:strokeColor="#0B1220"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M62,68 A10,10 0 0,0 62,60" />
+</vector>
