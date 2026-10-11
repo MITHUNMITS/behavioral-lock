@@ -132,7 +132,7 @@ flowchart TB
 | **Locking** (`LockOverlay`, `LockService`, `Watchdog`) | Engine + capture | Compose (it is a raw `View` on purpose) |
 | **Presentation** (`MainActivity`, `ui/`) | Everything | Sensor hardware |
 
-The engine has **no Android imports at all**, which is why all 57 unit tests run
+The engine has **no Android imports at all**, which is why all 61 unit tests run
 on a plain JVM in about a second with no device or emulator.
 
 > `LockOverlay` deliberately builds its UI with raw `View`s instead of Compose.
@@ -267,7 +267,7 @@ flowchart TD
     S -->|no| F2["✗ Wrong sequence of actions"]
     S -->|yes| R{"rhythmOk<br/>median gap score ≥ 40<br/>AND tempo within 0.45×–2.2×?"}
     R -->|no| F3["✗ Pauses between actions were too different"]
-    R -->|yes| G{"gripOk<br/>angle within 15°<br/>AND steadiness within 60%?<br/>(skipped if phone is flat)"}
+    R -->|yes| G{"gripOk<br/>angle within 20° of enrolment<br/>(skipped only if the ROUTINE was<br/>enrolled flat - a flat ATTEMPT is measured)"}
     G -->|no| F4["✗ Phone held at a different angle"]
     G -->|yes| E{"every event<br/>shape ≥ 62, position ≥ 55,<br/>duration, fingers"}
     E -->|no| F5["✗ Mismatch: per-factor reason"]
@@ -430,18 +430,44 @@ those inside ±44% next time is not a security control, it is a coin toss. So:
 3. **Tempo ratio** — overall pace must stay within **0.45×–2.2×**. This is where
    the security work actually happens.
 
-**Grip is skipped, never failed, when it cannot be measured.**
+**A flat phone means different things on each side of the comparison.**
 
-A phone lying flat reports pitch and roll of ~0. Comparing 0 against 0 would
-"pass" for anyone, so attitude is **skipped** rather than scored — the same rule
-already used for pressure. Judged across the *whole routine*, because a single
-tap is shorter than the motion sensor's sampling interval.
+This is the subtlest rule in the app, and it was wrong twice before it was
+right. A phone lying flat on a desk reports pitch and roll near zero.
 
-| Sub-factor | Tolerance |
-|---|---|
-| Angle (mean pitch/roll, circular mean) | ±15° |
-| Steadiness (tilt jitter) | ±60% |
-| Mean gyro | reported, **not** a pass condition — it repeats what jitter says, and a second blocking test on the same behaviour only rejects the owner more |
+| Side | Flat means | Action |
+|---|---|---|
+| **Enrolment** | "no hold reference exists" | **skip.** Demanding the owner also unlock lying flat would mean putting the phone on a desk to open it — which nobody does. |
+| **Attempt** | "the phone is on a table, not in a hand" | **measure it and refuse**, against a routine that was enrolled while held. |
+
+Getting this wrong is expensive in both directions. Treating a *flat enrolment*
+as a reference produced a deadlock: a phone on a desk has tilt jitter of 0.5°
+(the physical minimum) while any phone in a hand measured 0.9–13.7°, so with a
+1.5° tolerance floor the owner was rejected every single time they picked the
+phone up. Treating a *flat attempt* as "unmeasurable" then let the factor be
+bypassed entirely, so a held routine happily unlocked with the phone lying
+face-up on a table.
+
+Judged across the *whole routine*, because a single tap is shorter than the
+motion sensor's sampling interval.
+
+| Sub-factor | Tolerance | Blocks? |
+|---|---|---|
+| Angle (mean pitch/roll, circular mean) | ±20° | **yes** |
+| Steadiness (tilt jitter) | ±60%, floor 4° | no — scored and reported |
+| Mean gyro | — | no — reported |
+
+Every one of those numbers came from **25 real unlock attempts** recorded on a
+POCO M2 Pro, read back from the app's own failure report, not from guesswork.
+The same person varied by up to 20° of tilt between attempts, which is why the
+tolerance is 20° rather than the 15° first chosen — 15° sat *inside* the owner's
+own noise. And steadiness cannot block because hand tremor while held
+(0.9–13.7°) and while still (0.5–3.3°) overlap almost completely: it adds no
+discrimination, only random rejections.
+
+The app states on the home screen whether this factor is active at all, because
+a routine enrolled flat silently disables it and that is indistinguishable from
+a broken feature.
 
 ### Reliability by shape
 
@@ -600,7 +626,7 @@ Requires Android Studio (Ladybug or newer) with JDK 17+.
 | Kotlin | 2.4.x *(built into AGP 9 — do **not** apply `kotlin.android`)* |
 | `compileSdk` / `targetSdk` | 37 / 35 |
 | `minSdk` | 29 (Android 10) |
-| Tests | 57 unit tests, plain JVM, no device needed |
+| Tests | 61 unit tests, plain JVM, no device needed |
 
 ```bash
 # Unit tests — the whole engine, in about a second
@@ -654,9 +680,9 @@ already covered by the phone's own disk encryption.
   watchdog recovers the phone.
 - **After a reboot** Android always shows the real PIN once before third-party
   locks take over. Expected, and a security feature.
-- **Grip cannot be measured when the phone lies flat.** Pitch and roll are ~0 on
-  a table, which tells you nothing about how a person holds it, so the factor is
-  skipped rather than scored.
+- **Grip is inactive for a routine enrolled flat.** If you record while the phone
+  is lying on a desk, there is no hold reference and the angle is not checked.
+  The home screen says so in red.
 - **Signatures drift** over time; re-enrol every ~6 months.
 - **Long identical tap runs are the hardest routine.** Nine identical taps have
   no shape or position anchor, so rhythm carries almost the whole load. A routine
