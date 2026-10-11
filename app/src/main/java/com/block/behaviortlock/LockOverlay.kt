@@ -52,6 +52,15 @@ object LockOverlay {
      * never leave anyone locked out.
      */
     private const val MAX_ATTEMPTS = 3
+
+    /**
+     * How long the routine must stop changing before it is judged, in ms.
+     *
+     * Long enough for a long press to finish resolving and for a lightly
+     * bouncing finger not to split a tap into two contacts, short enough that
+     * the user still sees an answer straight away.
+     */
+    private const val SETTLE_MS = 700L
     private const val TAG = "BHT/Overlay"
 
     /** Where the last-attempt report is appended. Readable via `adb run-as`. */
@@ -77,6 +86,10 @@ object LockOverlay {
      * a single tap is shorter than the motion sensor's sampling interval.
      */
     private var detectedMotion: List<MotionPoint> = emptyList()
+
+    /** Settle-before-judging state. See [SETTLE_MS]. */
+    private var settleAtElapsedMs = 0L
+    private var settleEventCount = -1
 
     /** The tilt and steadiness of the phone during the current attempt. */
     private val detectedGrip: Shape
@@ -202,6 +215,8 @@ object LockOverlay {
         detected = emptyList()
         detectedMotion = emptyList()
         matched = emptyList()
+        settleAtElapsedMs = 0L
+        settleEventCount = -1
 
         secondsLeft = MAX_SECONDS
         releaseAtElapsedMs = SystemClock.elapsedRealtime() + MAX_SECONDS * 1000L
@@ -262,8 +277,26 @@ object LockOverlay {
         }
         rootView?.invalidate()
 
-        // Once the routine has been fully performed, judge it.
+        // Once the routine looks complete, wait for it to SETTLE before judging.
+        //
+        // Judging the instant the action count is reached was fragile. A finger
+        // that lifts even slightly splits one tap into two contacts, which
+        // reaches the expected count early and judges a half-finished routine —
+        // a routine ending in a long press then failed with "expected Hold,
+        // got Tap" because the judge ran while the press was still resolving.
+        //
+        // Waiting until nothing new has arrived for a moment means the whole
+        // routine is always judged. It does not weaken anything: extra actions
+        // that arrive during the settle window are still counted, and the
+        // 45-second release still applies.
         if (!enrolled.isEmpty && !judged && detected.size >= enrolled.events.size) {
+            val now = SystemClock.elapsedRealtime()
+            if (detected.size != settleEventCount) {
+                settleEventCount = detected.size
+                settleAtElapsedMs = now + SETTLE_MS
+            }
+            if (now < settleAtElapsedMs) return
+
             judged = true
             // The motion has to come along, or the grip factor is skipped and
             // how the phone was held never affects the result.
@@ -324,6 +357,16 @@ object LockOverlay {
         res.events.forEachIndexed { i, m ->
             Log.d(TAG, "  event[$i] ${m.kind.name} score=${m.score.toInt()} matched=${m.matched} note='${m.note}'")
         }
+        Log.d(
+            TAG,
+            "  detected durations(ms): " +
+                detected.joinToString { "${it.kind.name}:${it.durationMs.toInt()}" }
+        )
+        Log.d(
+            TAG,
+            "  enrolled durations(ms): " +
+                enrolled.events.joinToString { "${it.kind.name}:${it.durationMs.toInt()}" }
+        )
 
         // Some Android skins (MIUI among them) hide an app's log output
         // completely, so the numbers are also written to the app's own storage.
@@ -362,6 +405,14 @@ object LockOverlay {
                     appendLine("enrolled gaps : ${enrolled.events.joinToString { it.gapBeforeMs.toInt().toString() }}")
                     appendLine("detected kinds: ${detected.joinToString { it.kind.name }}")
                     appendLine("detected gaps : ${detected.joinToString { it.gapBeforeMs.toInt().toString() }}")
+                    appendLine(
+                        "detected durations: " +
+                            detected.joinToString { "${it.kind.name}:${it.durationMs.toInt()}" }
+                    )
+                    appendLine(
+                        "enrolled durations: " +
+                            enrolled.events.joinToString { "${it.kind.name}:${it.durationMs.toInt()}" }
+                    )
                     res.events.forEachIndexed { i, m ->
                         appendLine(
                             "event[$i] ${m.kind.name} score=${m.score.toInt()} " +

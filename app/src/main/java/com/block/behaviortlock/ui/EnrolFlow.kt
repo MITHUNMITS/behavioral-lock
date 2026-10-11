@@ -55,6 +55,17 @@ private val MatchGreen = androidx.compose.ui.graphics.Color(0xFF22C55E)
 fun EnrolReviewScreen(
     summary: String,
     events: List<DetectedEvent>,
+    /**
+     * The tilt the routine was recorded at, or null if it was recorded flat.
+     *
+     * Warned about HERE, at enrolment time, because a flat recording silently
+     * disables the "hold it the same way" factor and the user has no way to
+     * tell that from a broken feature. Finding out about it days later, on the
+     * home screen, is too late.
+     */
+    holdPitch: Float? = null,
+    holdRoll: Float? = null,
+    holdWobble: Float? = null,
     onRecordAgain: () -> Unit,
     onTest: () -> Unit,
     onDone: () -> Unit
@@ -83,6 +94,24 @@ fun EnrolReviewScreen(
                 Spacer(Modifier.height(16.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     events.forEachIndexed { i, event -> DetectedRow(i, event) }
+                }
+            }
+        }
+
+        if (holdPitch == null || holdRoll == null || holdWobble == null) {
+            Spacer(Modifier.height(14.dp))
+            SectionCard(title = "Recorded lying flat") {
+                Column {
+                    HoldPreviewRow(
+                        pitchDeg = null, rollDeg = null, wobbleDeg = null
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = onRecordAgain,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Re-record while holding the phone")
+                    }
                 }
             }
         }

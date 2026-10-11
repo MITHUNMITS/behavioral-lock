@@ -38,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -378,6 +379,18 @@ private fun HomeContent(vm: AppViewModel, navigate: (Screen) -> Unit) {
                                 wobbleDeg = grip.jitter
                             )
                         }
+
+                        // Make the fix one tap away rather than something the
+                        // user has to work out on their own.
+                        if (vm.enrolledGrip is AppViewModel.GripInfo.None) {
+                            Spacer(Modifier.height(12.dp))
+                            OutlinedButton(
+                                onClick = { navigate(Screen.RECORD) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Re-record while holding the phone")
+                            }
+                        }
                     }
                 }
             }
@@ -421,10 +434,19 @@ private fun SetupContent(vm: AppViewModel, done: () -> Unit) {
 }
 
 /**
+ * The enrolled hold as (pitch, roll, wobble), or null when the routine was
+ * recorded flat and there is no usable hold reference.
+ */
+private fun gripOf(vm: AppViewModel): Triple<Float, Float, Float>? =
+    (vm.enrolledGrip as? AppViewModel.GripInfo.Enrolled)?.let {
+        Triple(it.pitch, it.roll, it.jitter)
+    }
+
+/**
  * The enrolment route: shows the full-screen recorder, saves what was
  * recorded, and then lets the user test it straight away.
  *
- * "Record once, then test it" — because an enrolment that was never tested is
+ * "Record once, then test it" - because an enrolment that was never tested is
  * the single most common reason a user thinks the lock is broken.
  */
 @Composable
@@ -464,6 +486,9 @@ private fun RecorderRoute(
         1 -> EnrolReviewScreen(
             summary = vm.enrolledSummary,
             events = vm.enrolledEvents,
+            holdPitch = gripOf(vm)?.first,
+            holdRoll = gripOf(vm)?.second,
+            holdWobble = gripOf(vm)?.third,
             onRecordAgain = { backToRecording() },
             onTest = {
                 // The enrolment recording is no longer needed; free it so the
