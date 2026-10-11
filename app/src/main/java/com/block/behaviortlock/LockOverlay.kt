@@ -71,6 +71,14 @@ object LockOverlay {
     private var recorder: Recorder? = null
     private var enrolled: DetectedSession = DetectedSession()
 
+    /**
+     * Every recorded take of the routine, the first one first.
+     *
+     * The attempt is matched against all of them and the best result wins. See
+     * [MultiTakeScorer] for why, and for the security cost this trades away.
+     */
+    private var references: List<DetectedSession> = emptyList()
+
     private val handler = Handler(Looper.getMainLooper())
 
     private var running = false
@@ -138,6 +146,13 @@ object LockOverlay {
         rec.screenHeight = context.resources.displayMetrics.heightPixels.toFloat()
 
         enrolled = session
+
+        // Every take of the routine, so an attempt can be matched against the
+        // user's whole recorded range rather than one arbitrary sample. With a
+        // single take this is a list of one and behaves exactly as before.
+        val takes = profile.allSessions()
+        references = takes.ifEmpty { listOf(session) }
+
         recorder = rec
         running = false
         secondsLeft = MAX_SECONDS
@@ -268,10 +283,10 @@ object LockOverlay {
             detected = session.events
             detectedMotion = session.motion
             if (!enrolled.isEmpty) {
-                val res = SessionScorer.compare(
-                    enrolled,
+                val res = MultiTakeScorer.bestOf(
+                    references,
                     DetectedSession(session.events, 0f, session.motion)
-                )
+                ).best
                 matched = res.events.map { it.matched }
             }
         }
@@ -300,17 +315,18 @@ object LockOverlay {
             judged = true
             // The motion has to come along, or the grip factor is skipped and
             // how the phone was held never affects the result.
-            val res = SessionScorer.compare(
-                enrolled,
+            val outcome = MultiTakeScorer.bestOf(
+                references,
                 DetectedSession(detected, 0f, detectedMotion)
             )
+            val res = outcome.best
             if (res.passed) {
                 finishAttempt()
             } else {
                 // Tell the user straight away. Silently waiting for the
                 // timeout looked identical to "the lock is broken".
                 showFailure(res)
-                logResult(res, detected)
+                logResult(res, detected, outcome)
             }
             return
         }
@@ -323,7 +339,24 @@ object LockOverlay {
      * a failure from a report or over adb. This prints every factor so the real
      * numbers can be read back with `adb logcat -s BHT/Overlay`.
      */
-    private fun logResult(res: SessionResult, detected: List<DetectedEvent>) {
+    private fun logResult(
+        res: SessionResult,
+        detected: List<DetectedEvent>,
+        outcome: MultiTakeScorer.MatchOutcome
+    ) {
+        Log.d(
+            TAG,
+            "Takes: matched ${outcome.passedCount}/${outcome.results.size}, " +
+                "best was take #${outcome.bestIndex + 1} at ${res.totalScore.toInt()}%"
+        )
+        outcome.results.forEachIndexed { i, r ->
+            Log.d(
+                TAG,
+                "  take[${i + 1}] passed=${r.passed} score=${r.totalScore.toInt()} " +
+                    "countOk=${r.countOk} seqOk=${r.sequenceOk} rhythmOk=${r.rhythmOk} " +
+                    "gripOk=${r.gripOk} headline='${r.headline}'"
+            )
+        }
         Log.d(
             TAG,
             "REFUSED headline='${res.headline}' passed=${res.passed} " +
@@ -376,6 +409,17 @@ object LockOverlay {
                 out.write(buildString {
                     appendLine("---- attempt ----")
                     appendLine("headline=${res.headline} passed=${res.passed}")
+                    appendLine(
+                        "takes matched ${outcome.passedCount}/${outcome.results.size} " +
+                            "best=#${outcome.bestIndex + 1} score=${res.totalScore.toInt()}"
+                    )
+                    outcome.results.forEachIndexed { i, r ->
+                        appendLine(
+                            "  take[${i + 1}] passed=${r.passed} score=${r.totalScore.toInt()} " +
+                                "countOk=${r.countOk} seqOk=${r.sequenceOk} rhythmOk=${r.rhythmOk} " +
+                                "gripOk=${r.gripOk} headline='${r.headline}'"
+                        )
+                    }
                     appendLine(
                         "countOk=${res.countOk} seqOk=${res.sequenceOk} " +
                             "completed=${res.completed} rhythmOk=${res.rhythmOk} " +

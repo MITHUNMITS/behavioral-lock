@@ -24,6 +24,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var enrolledSummary by mutableStateOf(profile.enrolledSummary)
         private set
+    /** Additional recordings of the same routine, beyond the first. */
+    var extraTraces by mutableStateOf(profile.extraTraces)
+        private set
     var lockEnabled by mutableStateOf(profile.lockEnabled)
         private set
     var strongMode by mutableStateOf(profile.strongMode)
@@ -46,6 +49,29 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** The detected actions inside the enrolled routine, for the summary card. */
     val enrolledEvents: List<DetectedEvent>
         get() = enrolledTrace?.let { AutoSegmenter.segment(it).events } ?: emptyList()
+
+    /**
+     * How many recordings the user has made. Three is recommended: it is the
+     * first point where the app can see their actual range rather than one
+     * arbitrary sample, and where a single odd take can be ignored.
+     */
+    val takeCount: Int get() = totalTakes()
+
+    companion object {
+        /**
+         * Exactly three recordings, no more and no fewer.
+         *
+         * Three is the first point at which the app can see the user's actual
+         * range rather than one arbitrary sample, and where a single odd take
+         * can be ignored. More than three widens what the lock accepts without
+         * adding meaningful reliability — and widening the acceptance envelope
+         * is a real security cost, so it should not be offered casually.
+         */
+        const val MAX_TAKES = 3
+
+        /** The enrolment flow always collects exactly this many. */
+        const val RECOMMENDED_TAKES = 3
+    }
 
     /**
      * How the phone was held during enrolment, and whether that is usable.
@@ -79,6 +105,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun persist() {
         profile = profile.copy(
             enrolledTrace = enrolledTrace,
+            extraTraces = extraTraces,
             enrolledSummary = enrolledSummary,
             lockEnabled = lockEnabled,
             strongMode = strongMode,
@@ -93,16 +120,75 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // -- enrolment -----------------------------------------------------------
 
-    /** Save a newly recorded session as the user's routine. */
+    /** Save a newly recorded session as the user's routine. Replaces everything. */
     fun enroll(trace: Trace) {
         val session = AutoSegmenter.segment(trace, stringMode)
         enrolledTrace = trace
+        extraTraces = emptyList()
         enrolledSummary = session.summary()
         persist()
     }
 
+    /**
+     * Add another recording of the same routine.
+     *
+     * Takes are held to [MAX_TAKES], and a take that is not the same routine as
+     * the first one is refused: three different routines are three different
+     * locks, not three samples of one.
+     *
+     * Returns false, with a reason, if it could not be added.
+     */
+    fun addTake(trace: Trace): Result {
+        val session = AutoSegmenter.segment(trace, stringMode)
+        if (session.events.size < 2 && !stringMode) {
+            return Result.Failed("That recording was too short to be a valid take.")
+        }
+        if (session.summary() != enrolledSummary) {
+            return Result.Failed(
+                "That is a different routine (\"${session.summary()}\"). " +
+                    "Each take must be the same actions in the same order."
+            )
+        }
+        if (enrolledTrace == null) {
+            // No first take yet, so this one becomes it.
+            enroll(trace)
+            return Result.Ok(1)
+        }
+        if (totalTakes() >= MAX_TAKES) {
+            return Result.Failed("You already have $MAX_TAKES takes. That is the limit.")
+        }
+        extraTraces = extraTraces + trace
+        persist()
+        return Result.Ok(totalTakes())
+    }
+
+    /** Discard one take. Index 0 is the first one. */
+    fun removeTake(index: Int) {
+        val all = (listOfNotNull(enrolledTrace) + extraTraces).toMutableList()
+        if (index !in all.indices) return
+        all.removeAt(index)
+        // The first take always lives in enrolledTrace, so promote the next one
+        // into its place rather than leaving a gap.
+        enrolledTrace = all.firstOrNull()
+        extraTraces = all.drop(1)
+        enrolledSummary = enrolledTrace?.let {
+            AutoSegmenter.segment(it, stringMode).summary()
+        } ?: ""
+        persist()
+    }
+
+    /** Outcome of trying to add a take. */
+    sealed interface Result {
+        data class Ok(val count: Int) : Result
+        data class Failed(val why: String) : Result
+    }
+
+    /** How many takes the user has recorded. */
+    fun totalTakes(): Int = if (enrolledTrace == null) 0 else 1 + extraTraces.size
+
     fun clearEnrolled() {
         enrolledTrace = null
+        extraTraces = emptyList()
         enrolledSummary = ""
         persist()
     }

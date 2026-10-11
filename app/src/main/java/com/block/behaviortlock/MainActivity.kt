@@ -45,6 +45,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -459,6 +460,27 @@ private fun RecorderRoute(
     var stage by remember { mutableStateOf(0) }   // 0 = record, 1 = review, 2 = test
     var testResult by remember { mutableStateOf<SessionResult?>(null) }
 
+    /**
+     * True while recording an ADDITIONAL take rather than the first one.
+     *
+     * The first take replaces the routine entirely; later ones are added to it,
+     * so a user who just wants to change their routine must not have three
+     * stale takes carried along with it.
+     */
+    var addingTake by remember { mutableStateOf(false) }
+    var takeMessage by remember { mutableStateOf<String?>(null) }
+
+    /**
+     * Bumped after every saved take, which recreates the recorder screen.
+     *
+     * The recorder keeps its own state (running / stopped / countdown). After
+     * the FIRST take the stage changes to the review screen, so the recorder is
+     * disposed and comes back fresh. After takes two and three the stage stays
+     * on the recorder, so it was never disposed and was left showing
+     * "Recording stopped" from the take that had just been saved.
+     */
+    var recorderEpoch by remember { mutableIntStateOf(0) }
+
     // Every return to the recording screen wipes the previous attempt, so an
     // old drawing can never linger on the canvas.
     fun backToRecording() {
@@ -468,20 +490,62 @@ private fun RecorderRoute(
     }
 
     when (stage) {
-        0 -> RecorderScreen(
+        // key() recreates the recorder screen whenever a take is saved, so it
+        // never carries "Recording stopped" over from the previous attempt.
+        0 -> key(recorderEpoch) { RecorderScreen(
             recorder = recorder,
             mode = RecorderMode.ENROLL,
             enrolled = emptyList(),
+            promptTitle = if (addingTake)
+                "Take ${vm.totalTakes() + 1} of ${AppViewModel.MAX_TAKES}"
+            else "Enroll now",
+            promptBody = if (addingTake)
+                "Perform the same routine again, in the same order.\n" +
+                    "Doing it a few times teaches the lock your normal variation."
+            else "Perform your whole routine in one go —\ntap, draw, swipe, shake, whatever you like.",
             onFinished = { trace ->
-                if (trace.touches.isNotEmpty()) {
-                    vm.enroll(trace)
-                    stage = 1
-                } else {
+                if (trace.touches.isEmpty()) {
                     recorder.clear()
+                    recorderEpoch++
+                    return@RecorderScreen
+                }
+                if (addingTake) {
+                    when (val r = vm.addTake(trace)) {
+                        is AppViewModel.Result.Ok -> {
+                            takeMessage = "Take ${r.count} of ${AppViewModel.MAX_TAKES} saved."
+                        }
+                        is AppViewModel.Result.Failed -> takeMessage = r.why
+                    }
+                    recorder.clear()
+                    recorderEpoch++
+                    // Straight on to the next take. Three recordings are
+                    // mandatory, so there is no decision to make between them
+                    // and no chance to stop at one and think it is done.
+                    if (vm.takeCount < AppViewModel.MAX_TAKES) {
+                        addingTake = true
+                        stage = 0
+                    } else {
+                        addingTake = false
+                        stage = 1   // 3 of 3: the summary
+                    }
+                } else {
+                    vm.enroll(trace)
+                    recorder.clear()
+                    recorderEpoch++
+                    // Chain into take 2 exactly as takes 2 and 3 chain into each
+                    // other. The first take used to stop at the summary, which
+                    // meant it alone needed a manual tap to reach take 2.
+                    if (vm.takeCount < AppViewModel.MAX_TAKES) {
+                        addingTake = true
+                        stage = 0
+                    } else {
+                        addingTake = false
+                        stage = 1
+                    }
                 }
             },
             onCancel = onExit
-        )
+        ) }
 
         1 -> EnrolReviewScreen(
             summary = vm.enrolledSummary,
@@ -489,6 +553,19 @@ private fun RecorderRoute(
             holdPitch = gripOf(vm)?.first,
             holdRoll = gripOf(vm)?.second,
             holdWobble = gripOf(vm)?.third,
+            takeCount = vm.takeCount,
+            maxTakes = AppViewModel.MAX_TAKES,
+            recommendedTakes = AppViewModel.RECOMMENDED_TAKES,
+            onAddTake = {
+                if (vm.takeCount < AppViewModel.MAX_TAKES) {
+                    recorder.clear()
+                    addingTake = true
+                    takeMessage = null
+                    stage = 0
+                }
+            },
+            infoMessage = takeMessage,
+            onRemoveTake = { vm.removeTake(it) },
             onRecordAgain = { backToRecording() },
             onTest = {
                 // The enrolment recording is no longer needed; free it so the

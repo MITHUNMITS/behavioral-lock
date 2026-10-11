@@ -217,10 +217,13 @@ object AutoSegmenter {
 
             // Extend the run while the motion stays vigorous.
             var j = i
-            var peak = 0f
+            var peakAccel = 0f
+            var peakGyro = 0f
             while (j < motion.size && isVigorous(motion[j])) {
-                val m = magnitude(motion[j])
-                if (m > peak) peak = m
+                val a = magnitude(motion[j])
+                if (a > peakAccel) peakAccel = a
+                val g = gyroMagnitude(motion[j])
+                if (g > peakGyro) peakGyro = g
                 j++
             }
 
@@ -236,8 +239,14 @@ object AutoSegmenter {
             // then failed with "expected Tap, got Shake" — but only when the
             // user was holding the phone, never when it lay flat on the desk.
             // A shake goes one way and then comes back; lifting does not.
+            //
+            // Strength is judged on EITHER sensor. A shake driven by the wrist
+            // rotating the phone produces large rotation rates with only modest
+            // linear acceleration, and checking acceleration alone meant such a
+            // shake could never be detected no matter how vigorous it was.
+            val strongEnough = peakAccel >= SHAKE_ENERGY || peakGyro >= SHAKE_GYRO
             if (durationMs >= SHAKE_MIN_MS &&
-                peak >= SHAKE_ENERGY &&
+                strongEnough &&
                 directionReversals(window) >= SHAKE_MIN_REVERSALS
             ) {
                 val touchesDuring = contacts.any { contact ->
@@ -258,31 +267,34 @@ object AutoSegmenter {
     }
 
     /**
-     * How many times the strongest axis reversed direction.
+     * How many times the movement reversed direction.
      *
      * A deliberate shake is oscillatory: the phone goes one way, comes back,
      * goes the other way. Lifting a phone off a desk is a single movement in
      * one direction, which can be just as strong and just as long. Energy and
      * duration cannot tell those apart; oscillation can.
+     *
+     * The axis is chosen PER SAMPLE, from whichever one moved most at that
+     * moment, rather than fixed for the whole window. A real shake travels
+     * across all three axes at once and a fixed axis only ever saw part of it,
+     * which made genuine shakes score too few reversals to be detected.
      */
     private fun directionReversals(window: List<MotionPoint>): Int {
         if (window.size < 2) return 0
 
-        // Work on whichever axis moved the most, so a diagonal movement still
-        // produces a clear signal.
-        var sx = 0f; var sy = 0f; var sz = 0f
-        for (m in window) {
-            sx += abs(m.accelX); sy += abs(m.accelY); sz += abs(m.accelZ)
-        }
-        val axis = if (sx >= sy && sx >= sz) 0 else if (sy >= sz) 1 else 2
-
         var reversals = 0
         var lastSign = 0
         for (m in window) {
-            val v = when (axis) { 0 -> m.accelX; 1 -> m.accelY; else -> m.accelZ }
-            // Ignore values inside the noise band around zero, otherwise
-            // sensor jitter reads as a direction change.
-            if (abs(v) < SHAKE_DEADZONE) continue
+            // Ignore samples inside the noise band around zero, otherwise sensor
+            // jitter reads as a direction change.
+            val ax = abs(m.accelX); val ay = abs(m.accelY); val az = abs(m.accelZ)
+            if (ax < SHAKE_DEADZONE && ay < SHAKE_DEADZONE && az < SHAKE_DEADZONE) continue
+
+            val v = when {
+                ax >= ay && ax >= az -> m.accelX
+                ay >= az -> m.accelY
+                else -> m.accelZ
+            }
             val sign = if (v > 0f) 1 else -1
             if (lastSign != 0 && sign != lastSign) reversals++
             lastSign = sign
@@ -290,12 +302,15 @@ object AutoSegmenter {
         return reversals
     }
 
+    /** Rotation rate magnitude in rad/s. */
+    private fun gyroMagnitude(m: MotionPoint): Float = kotlin.math.sqrt(
+        (m.gyroX * m.gyroX + m.gyroY * m.gyroY + m.gyroZ * m.gyroZ).toDouble()
+    ).toFloat()
+
     /** Is this sample moving much more than a phone lying still? */
     private fun isVigorous(m: MotionPoint): Boolean {
         val a = magnitude(m)
-        val g = kotlin.math.sqrt(
-            (m.gyroX * m.gyroX + m.gyroY * m.gyroY + m.gyroZ * m.gyroZ).toDouble()
-        )
+        val g = gyroMagnitude(m)
         return a >= SHAKE_ENERGY || g >= SHAKE_GYRO
     }
 

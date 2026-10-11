@@ -2,6 +2,9 @@ package com.block.behaviortlock.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -51,6 +54,7 @@ import com.block.behaviortlock.Trace
 private val MatchGreen = androidx.compose.ui.graphics.Color(0xFF22C55E)
 
 /** Step 1: show what the app detected, and offer Record again / Test. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EnrolReviewScreen(
     summary: String,
@@ -66,6 +70,14 @@ fun EnrolReviewScreen(
     holdPitch: Float? = null,
     holdRoll: Float? = null,
     holdWobble: Float? = null,
+    /** How many recordings of the routine the user has made. */
+    takeCount: Int = 1,
+    maxTakes: Int = 5,
+    recommendedTakes: Int = 3,
+    /** Transient feedback from the last saved or rejected take. */
+    infoMessage: String? = null,
+    onAddTake: () -> Unit = {},
+    onRemoveTake: (Int) -> Unit = {},
     onRecordAgain: () -> Unit,
     onTest: () -> Unit,
     onDone: () -> Unit
@@ -97,6 +109,95 @@ fun EnrolReviewScreen(
                 }
             }
         }
+
+        SectionCard(
+            title = "Recordings",
+            subtitle = "$takeCount of $maxTakes"
+        ) {
+            Column {
+                if (infoMessage != null) {
+                    Text(
+                        infoMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
+                Text(
+                    if (takeCount < recommendedTakes)
+                        "One recording is a single sample of how you happen to " +
+                            "behave today. Record $recommendedTakes and the lock " +
+                            "learns your normal variation, so it stops rejecting " +
+                            "you on a slightly different day."
+                    else
+                        "Good — this routine now covers your normal variation. " +
+                            "More takes widen what the lock accepts, so there " +
+                            "is a limit of $maxTakes.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    repeat(maxTakes) { i ->
+                        val filled = i < takeCount
+                        Box(
+                            Modifier
+                                .size(if (filled) 14.dp else 10.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (filled) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surfaceVariant
+                                )
+                        )
+                    }
+                }
+                if (takeCount < maxTakes) {
+                    Spacer(Modifier.height(16.dp))
+                    Button(
+                        onClick = onAddTake,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Record take ${takeCount + 1}")
+                    }
+                }
+                if (takeCount > 1) {
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        "Delete a bad take:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    // Wraps: a plain Row overflows once there are several
+                    // takes, which pushed the rest of the screen out of reach.
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        repeat(takeCount) { i ->
+                            OutlinedButton(
+                                onClick = { onRemoveTake(i) },
+                                contentPadding = PaddingValues(
+                                    horizontal = 14.dp,
+                                    vertical = 6.dp
+                                )
+                            ) {
+                                Text("Take ${i + 1}")
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "To start over completely, use \"Record again\" at the " +
+                            "top instead — that replaces all of them.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
 
         if (holdPitch == null || holdRoll == null || holdWobble == null) {
             Spacer(Modifier.height(14.dp))
