@@ -47,6 +47,35 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val enrolledEvents: List<DetectedEvent>
         get() = enrolledTrace?.let { AutoSegmenter.segment(it).events } ?: emptyList()
 
+    /**
+     * How the phone was held during enrolment, and whether that is usable.
+     *
+     * This is shown on the home screen because the alternative is a silent
+     * trap: a routine enrolled with the phone lying flat has no hold reference,
+     * so the "hold it the same way" factor quietly does nothing, and changing
+     * the angle at unlock time makes no difference at all. The user has no way
+     * to tell that from a broken feature, so the app says it outright.
+     */
+    val enrolledGrip: GripInfo
+        get() {
+            val trace = enrolledTrace ?: return GripInfo.None
+            val grip = ShapeBuilder.build(Trace(SegmentKind.TAP, emptyList(), trace.motion))
+            return if (grip.hasGrip) {
+                GripInfo.Enrolled(grip.meanPitch, grip.meanRoll, grip.tiltJitterDeg)
+            } else {
+                GripInfo.None
+            }
+        }
+
+    /** Where the hold factor currently stands. */
+    sealed interface GripInfo {
+        /** Nothing usable was recorded — re-enrol while actually holding the phone. */
+        data object None : GripInfo
+
+        /** A real hold reference exists and is being enforced. */
+        data class Enrolled(val pitch: Float, val roll: Float, val jitter: Float) : GripInfo
+    }
+
     private fun persist() {
         profile = profile.copy(
             enrolledTrace = enrolledTrace,
